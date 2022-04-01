@@ -1,9 +1,9 @@
 #![feature(mixed_integer_ops)]
 
 mod structs;
-use structs::*;
+pub use structs::*;
 
-fn get_header(width: u32, height: u32, channels: Channels, colorspace: ColorSpace) -> [u8; 14] {
+fn header(width: u32, height: u32, channels: Channels, colorspace: ColorSpace) -> [u8; 14] {
     let mut header = [0; 14];
     header[0] = "qoif".as_bytes()[0];
     header[1] = "qoif".as_bytes()[1];
@@ -22,9 +22,25 @@ fn get_header(width: u32, height: u32, channels: Channels, colorspace: ColorSpac
     header
 }
 
+fn get_header(header: &[u8]) -> (u32, u32, Channels, ColorSpace) {
+    let width = ((header[4] as u32) << 24) | ((header[5] as u32) << 16) | ((header[6] as u32) << 8) | (header[7] as u32);
+    let height = ((header[8] as u32) << 24) | ((header[9] as u32) << 16) | ((header[10] as u32) << 8) | (header[11] as u32);
+    let channels = match header[12] {
+        3 => Channels::RGB,
+        4 => Channels::RGBA,
+        _ => panic!("Invalid number of channels"),
+    }; 
+    let colorspace = match header[13] {
+        0 => ColorSpace::SRGB,
+        1 => ColorSpace::Linear,
+        _ => panic!("Invalid colorspace"),
+    };
+    (width, height, channels, colorspace)
+}
+
 pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
     let mut hash = QOIHash::new();
-    let mut encoded = Vec::from(get_header(width, height, Channels::RGB, ColorSpace::SRGB));
+    let mut encoded = Vec::from(header(width, height, Channels::RGB, ColorSpace::SRGB));
     let mut previous = Pixel::default();
 
     let num_pixels = pixels.len();
@@ -41,7 +57,7 @@ pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
             // start run of same color
             let mut num_same = 0; // start with offset, as spec
             loop {
-                if num_same == 62 {
+                if num_same == 61 {
                     break;
                 }
                 if i + num_same + 1 < num_pixels && pixels[i + num_same + 1] == pixel {
@@ -56,6 +72,7 @@ pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
         } else {
             let pix_enc = OpRGB::new(pixel.r, pixel.g, pixel.b).get_encoding();
             encoded.extend_from_slice(&pix_enc);
+            i += 1;
         }
     }
     encoded
@@ -66,12 +83,18 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
     let mut hash = QOIHash::new();
     let mut previous = Pixel::default();
 
+    let (width, height, channels, colorspace) = get_header(&encoded[0..14]);
+    let encoded = &encoded[14..];
+
+    dbg!(&encoded);
+
     let mut i = 0; // which byte in encoded
     loop {
         if i >= encoded.len() {
             break;
         }
-        let op = Chunk::from_encoding(&encoded[i..i + 4]);
+        let op = Chunk::from_encoding(&encoded[i..usize::min(i + 4, encoded.len())]);
+        dbg!(&op);
         match op {
             Chunk::RGB(rgb) => {
                 let pixel = Pixel {
@@ -131,7 +154,7 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
                 i += 1;
             }
             Chunk::Run(run) => {
-                for _ in 0..run.run {
+                for _ in 0..=run.run {
                     decoded.push(previous);
                 }
                 i += 1;

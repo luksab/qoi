@@ -1,14 +1,17 @@
 #[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Channels {
     RGB = 3,
     RGBA = 4,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ColorSpace {
     SRGB = 0,
     Linear = 1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QoiHeader {
     magic: [u8; 4],
     width: u32,
@@ -36,6 +39,7 @@ impl Default for Pixel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QOIHash {
     data: Box<[Pixel]>,
 }
@@ -48,7 +52,7 @@ impl QOIHash {
     }
 
     pub(crate) fn get_index(&self, pixel: Pixel) -> usize {
-        ((pixel.r * 3 + pixel.g * 5 + pixel.b * 11) % 64) as usize
+        ((pixel.r.wrapping_mul(3).wrapping_add(pixel.g.wrapping_mul(5)).wrapping_add(pixel.b.wrapping_mul(7)).wrapping_add(pixel.a.wrapping_mul(11))) % 64) as usize
     }
 
     pub(crate) fn get(&self, index: u8) -> Pixel {
@@ -61,6 +65,7 @@ impl QOIHash {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpRGB {
     pub(crate) r: u8,
     pub(crate) g: u8,
@@ -81,6 +86,7 @@ impl OpRGB {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpRGBA {
     pub(crate) r: u8,
     pub(crate) g: u8,
@@ -102,6 +108,7 @@ impl OpRGBA {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpIndex {
     pub(crate) index: u8,
 }
@@ -121,6 +128,7 @@ impl OpIndex {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpDiff {
     pub(crate) diff: u8,
 }
@@ -151,6 +159,7 @@ impl OpDiff {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpLuma {
     pub(crate) g: u8,
     pub(crate) rb: u8,
@@ -184,6 +193,7 @@ impl OpLuma {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpRun {
     pub(crate) run: u8,
 }
@@ -203,6 +213,7 @@ impl OpRun {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Chunk {
     RGB(OpRGB),
     RGBA(OpRGBA),
@@ -214,8 +225,9 @@ pub(crate) enum Chunk {
 
 impl Chunk {
     pub(crate) fn from_encoding(possible_chunk: &[u8]) -> Self {
+        dbg!(&possible_chunk);
         let op = possible_chunk[0];
-        match op & 0b11000000 {
+        match (op & 0b11000000) >> 6 {
             0b00 => Chunk::Index(OpIndex::new(op & 0b00111111)),
             0b01 => Chunk::Diff(OpDiff {
                 diff: op & 0b00111111,
