@@ -3,6 +3,8 @@
 mod structs;
 pub use structs::*;
 
+mod tests;
+
 fn header(width: u32, height: u32, channels: Channels, colorspace: ColorSpace) -> [u8; 14] {
     let mut header = [0; 14];
     header[0] = "qoif".as_bytes()[0];
@@ -23,13 +25,19 @@ fn header(width: u32, height: u32, channels: Channels, colorspace: ColorSpace) -
 }
 
 fn get_header(header: &[u8]) -> (u32, u32, Channels, ColorSpace) {
-    let width = ((header[4] as u32) << 24) | ((header[5] as u32) << 16) | ((header[6] as u32) << 8) | (header[7] as u32);
-    let height = ((header[8] as u32) << 24) | ((header[9] as u32) << 16) | ((header[10] as u32) << 8) | (header[11] as u32);
+    let width = ((header[4] as u32) << 24)
+        | ((header[5] as u32) << 16)
+        | ((header[6] as u32) << 8)
+        | (header[7] as u32);
+    let height = ((header[8] as u32) << 24)
+        | ((header[9] as u32) << 16)
+        | ((header[10] as u32) << 8)
+        | (header[11] as u32);
     let channels = match header[12] {
         3 => Channels::RGB,
         4 => Channels::RGBA,
         _ => panic!("Invalid number of channels"),
-    }; 
+    };
     let colorspace = match header[13] {
         0 => ColorSpace::SRGB,
         1 => ColorSpace::Linear,
@@ -38,7 +46,21 @@ fn get_header(header: &[u8]) -> (u32, u32, Channels, ColorSpace) {
     (width, height, channels, colorspace)
 }
 
-pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
+pub fn encode_from_u8(pixels: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let pixels = pixels
+        .chunks(3)
+        .map(|chunk| {
+            let mut pixel = Pixel::default();
+            pixel.r = chunk[0];
+            pixel.g = chunk[1];
+            pixel.b = chunk[2];
+            pixel
+        })
+        .collect::<Vec<_>>();
+    encode_from_pix(&pixels, width, height)
+}
+
+pub fn encode_from_pix(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
     let mut hash = QOIHash::new();
     let mut encoded = Vec::from(header(width, height, Channels::RGB, ColorSpace::SRGB));
     let mut previous = Pixel::default();
@@ -52,8 +74,9 @@ pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
             break;
         }
         let pixel = pixels[i];
+        let index = hash.lookup(&pixel);
         if i + 1 < num_pixels && pixels[i + 1] == pixel {
-            hash.insert(pixel);
+            hash.insert(&pixel);
             // start run of same color
             let mut num_same = 0; // start with offset, as spec
             loop {
@@ -62,23 +85,57 @@ pub fn encode(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
                 }
                 if i + num_same + 1 < num_pixels && pixels[i + num_same + 1] == pixel {
                     num_same += 1;
-                    hash.insert(pixel);
+                    hash.insert(&pixel);
                 } else {
                     break;
                 }
             }
             i = i + num_same + 1;
+            previous = pixel;
+            println!("found run of {} pixels", num_same + 1);
+            println!("encoding as {}", OpRun::new(num_same as u8).get_encoding());
             encoded.push(OpRun::new(num_same as u8).get_encoding());
+        } else if index.is_some() {
+            // pixel exists in hash
+            previous = pixel;
+            println!("found pixel {:?} in hash", pixel);
+            println!("encoding as {}", OpIndex::new(index.unwrap() as u8).get_encoding());
+            encoded.push(OpIndex::new(index.unwrap() as u8).get_encoding());
+            i += 1;
         } else {
-            let pix_enc = OpRGB::new(pixel.r, pixel.g, pixel.b).get_encoding();
-            encoded.extend_from_slice(&pix_enc);
+            let dr = unsafe { std::mem::transmute::<_, i8>(pixel.r.wrapping_sub(previous.r)) };
+            let dg = unsafe { std::mem::transmute::<_, i8>(pixel.g.wrapping_sub(previous.g)) };
+            let db = unsafe { std::mem::transmute::<_, i8>(pixel.b.wrapping_sub(previous.b)) };
+            if dr >= -2 && dr < 2 && dg >= -2 && dg < 2 && db >= -2 && db < 2 {
+                // difference is small enough to be encoded with OpDiff
+                previous = pixel;
+                println!("found difference {:?}", (dr, dg, db));
+                println!("encoding as {}", OpDiff::new(dr, dg, db).get_encoding());
+                encoded.push(OpDiff::new(dr, dg, db).get_encoding());
+            } else if dg >= -32
+                && dg < 32
+                && dr.wrapping_sub(dg) >= -8
+                && dr.wrapping_sub(dg) < 8
+                && db.wrapping_sub(dg) >= -8
+                && db.wrapping_sub(dg) < 8
+            {
+                // difference is small enough to be encoded with OpLuma
+                previous = pixel;
+                println!("found large difference {:?}", (dr, dg, db));
+                println!("encoding as {:?}", OpLuma::new(dr, dg, db).get_encoding());
+                encoded.extend_from_slice(&OpLuma::new(dr, dg, db).get_encoding());
+            } else {
+                let pix_enc = OpRGB::new(pixel.r, pixel.g, pixel.b).get_encoding();
+                previous = pixel;
+                encoded.extend_from_slice(&pix_enc);
+            }
             i += 1;
         }
     }
     encoded
 }
 
-pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
+pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {
     let mut decoded = Vec::new();
     let mut hash = QOIHash::new();
     let mut previous = Pixel::default();
@@ -86,7 +143,7 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
     let (width, height, channels, colorspace) = get_header(&encoded[0..14]);
     let encoded = &encoded[14..];
 
-    dbg!(&encoded);
+    // dbg!(&encoded);
 
     let mut i = 0; // which byte in encoded
     loop {
@@ -94,7 +151,7 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
             break;
         }
         let op = Chunk::from_encoding(&encoded[i..usize::min(i + 4, encoded.len())]);
-        dbg!(&op);
+        // dbg!(&op);
         match op {
             Chunk::RGB(rgb) => {
                 let pixel = Pixel {
@@ -103,7 +160,7 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
                     b: rgb.b,
                     a: 255,
                 };
-                hash.insert(pixel);
+                hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
                 i += 4;
@@ -115,13 +172,15 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
                     b: rgba.b,
                     a: rgba.a,
                 };
-                hash.insert(pixel);
+                println!("rgba {:?}", rgba);
+                hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
                 i += 5;
             }
             Chunk::Index(index) => {
                 let pixel = hash.get(index.index);
+                println!("found pixel {:?} in hash from {}", pixel, &encoded[i]);
                 // hash does not need to be updated
                 previous = pixel;
                 decoded.push(pixel);
@@ -135,7 +194,8 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
                     b: previous.b.overflowing_add_signed(diff.2).0,
                     a: previous.a,
                 };
-                hash.insert(pixel);
+                println!("found difference {:?}", diff);
+                hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
                 i += 1;
@@ -148,10 +208,10 @@ pub fn decode(encoded: &[u8]) -> Vec<Pixel> {
                     b: previous.b.overflowing_add_signed(diff.2).0,
                     a: previous.a,
                 };
-                hash.insert(pixel);
+                hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
-                i += 1;
+                i += 2;
             }
             Chunk::Run(run) => {
                 for _ in 0..=run.run {

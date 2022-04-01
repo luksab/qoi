@@ -39,6 +39,17 @@ impl Default for Pixel {
     }
 }
 
+impl Pixel {
+    pub fn random() -> Self {
+        Pixel {
+            r: rand::random(),
+            g: rand::random(),
+            b: rand::random(),
+            a: 255,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QOIHash {
     data: Box<[Pixel]>,
@@ -51,17 +62,31 @@ impl QOIHash {
         }
     }
 
-    pub(crate) fn get_index(&self, pixel: Pixel) -> usize {
-        ((pixel.r.wrapping_mul(3).wrapping_add(pixel.g.wrapping_mul(5)).wrapping_add(pixel.b.wrapping_mul(7)).wrapping_add(pixel.a.wrapping_mul(11))) % 64) as usize
+    pub(crate) fn get_index(&self, pixel: &Pixel) -> usize {
+        ((pixel
+            .r
+            .wrapping_mul(3)
+            .wrapping_add(pixel.g.wrapping_mul(5))
+            .wrapping_add(pixel.b.wrapping_mul(7))
+            .wrapping_add(pixel.a.wrapping_mul(11)))
+            % 64) as usize
     }
 
     pub(crate) fn get(&self, index: u8) -> Pixel {
         self.data[index as usize]
     }
 
-    pub(crate) fn insert(&mut self, pixel: Pixel) {
+    pub(crate) fn lookup(&mut self, pixel: &Pixel) -> Option<u8> {
+        let index = self.get_index(pixel);
+        if self.data[index] == *pixel {
+            return Some(index as u8);
+        }
+        return None;
+    }
+
+    pub(crate) fn insert(&mut self, pixel: &Pixel) {
         let pos = self.get_index(pixel);
-        self.data[pos] = pixel;
+        self.data[pos] = *pixel;
     }
 }
 
@@ -171,7 +196,7 @@ impl OpLuma {
         debug_assert!(dr - dg >= -8 && dr - dg <= 7);
         debug_assert!(db - dg >= -8 && db - dg <= 7);
         OpLuma {
-            g: unsafe { std::mem::transmute::<_, u8>(dg) },
+            g: (dg + 32) as u8,
             rb: (unsafe { std::mem::transmute::<_, u8>(dr - dg) } << 4)
                 | unsafe { std::mem::transmute::<_, u8>(db - dg) },
         }
@@ -225,7 +250,7 @@ pub(crate) enum Chunk {
 
 impl Chunk {
     pub(crate) fn from_encoding(possible_chunk: &[u8]) -> Self {
-        dbg!(&possible_chunk);
+        // dbg!(&possible_chunk);
         let op = possible_chunk[0];
         match (op & 0b11000000) >> 6 {
             0b00 => Chunk::Index(OpIndex::new(op & 0b00111111)),
