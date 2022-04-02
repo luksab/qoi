@@ -164,7 +164,7 @@ impl OpDiff {
         debug_assert!(g >= -2 && g <= 1);
         debug_assert!(b >= -2 && b <= 1);
         OpDiff {
-            diff: ((r as u8) << 4) | ((g as u8) << 2) | (b as u8),
+            diff: (((r + 2) as u8) << 4) | (((g + 2) as u8) << 2) | ((b + 2) as u8),
         }
     }
 
@@ -177,9 +177,9 @@ impl OpDiff {
     }
 
     pub fn get_diffs(&self) -> (i8, i8, i8) {
-        let r = unsafe { std::mem::transmute::<_, i8>((self.diff >> 4) & 0b11) };
-        let g = unsafe { std::mem::transmute::<_, i8>((self.diff >> 2) & 0b11) };
-        let b = unsafe { std::mem::transmute::<_, i8>((self.diff >> 0) & 0b11) };
+        let r = ((self.diff >> 4) & 0b11) as i8 - 2;
+        let g = ((self.diff >> 2) & 0b11) as i8 - 2;
+        let b = ((self.diff >> 0) & 0b11) as i8 - 2;
         (r, g, b)
     }
 }
