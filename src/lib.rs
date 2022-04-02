@@ -75,8 +75,7 @@ pub fn encode_from_pix(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
         }
         let pixel = pixels[i];
         let index = hash.lookup(&pixel);
-        if i + 1 < num_pixels && pixels[i + 1] == pixel {
-            hash.insert(&pixel);
+        if previous == pixel {
             // start run of same color
             let mut num_same = 0; // start with offset, as spec
             loop {
