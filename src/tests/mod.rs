@@ -43,10 +43,21 @@ mod tests {
         assert_eq!(pixels, decoded);
     }
 
+    fn random(width: usize, height: usize) {
+        let pixels = (0..width * height).map(|_| Pixel::random()).collect::<Vec<_>>();
+        let encoded = encode_from_pix(&pixels, width as u32, height as u32);
+        println!("encoded: {:?}", &encoded[14..]);
+
+        let decoded = decode_to_pix(&encoded);
+        println!("decoded: {:?}", decoded);
+
+        assert_eq!(pixels, decoded);
+    }
+
     #[test]
-    fn repeated_random4x4() {
+    fn repeated_random1x1() {
         loop {
-            random4x4();
+            random(1, 1);
             println!("\n\n\n\n\n\n\n\n");
             println!("---------------------------------------------------------------------------------");
         }
