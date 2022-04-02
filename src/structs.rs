@@ -186,7 +186,7 @@ impl OpDiff {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpLuma {
-    pub(crate) g: u8,
+    pub(crate) dg: u8,
     pub(crate) rb: u8,
 }
 
@@ -196,9 +196,8 @@ impl OpLuma {
         debug_assert!(dr - dg >= -8 && dr - dg <= 7);
         debug_assert!(db - dg >= -8 && db - dg <= 7);
         OpLuma {
-            g: (dg + 32) as u8,
-            rb: (unsafe { std::mem::transmute::<_, u8>(dr - dg) } << 4)
-                | unsafe { std::mem::transmute::<_, u8>(db - dg) },
+            dg: (dg + 32) as u8,
+            rb: ((dr - dg + 8) as u8) << 4 | ((db - dg + 8) as u8),
         }
     }
 
@@ -207,14 +206,14 @@ impl OpLuma {
     }
 
     pub fn get_encoding(&self) -> [u8; 2] {
-        [self.get_tag() << 6 | self.g, self.rb]
+        [self.get_tag() << 6 | self.dg, self.rb]
     }
 
     pub fn get_diffs(&self) -> (i8, i8, i8) {
-        let g = unsafe { std::mem::transmute::<_, i8>(self.g) };
-        let dr = unsafe { std::mem::transmute::<_, i8>((self.rb >> 4) & 0b11) };
-        let db = unsafe { std::mem::transmute::<_, i8>((self.rb >> 0) & 0b11) };
-        (dr + g, g, db + g)
+        let dg = self.dg as i8 - 32;
+        let dr = ((self.rb >> 4) & 0b1111) as i8 - 8;
+        let db = ((self.rb >> 0) & 0b1111) as i8 - 8;
+        (dr + dg, dg, db + dg)
     }
 }
 
@@ -258,7 +257,7 @@ impl Chunk {
                 diff: op & 0b00111111,
             }),
             0b10 => Chunk::Luma(OpLuma {
-                g: op & 0b00111111,
+                dg: op & 0b00111111,
                 rb: possible_chunk[1],
             }),
             0b11 => {
