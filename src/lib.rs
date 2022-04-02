@@ -24,31 +24,9 @@ fn header(width: u32, height: u32, channels: Channels, colorspace: ColorSpace) -
     header
 }
 
-fn get_header(header: &[u8]) -> (u32, u32, Channels, ColorSpace) {
-    let width = ((header[4] as u32) << 24)
-        | ((header[5] as u32) << 16)
-        | ((header[6] as u32) << 8)
-        | (header[7] as u32);
-    let height = ((header[8] as u32) << 24)
-        | ((header[9] as u32) << 16)
-        | ((header[10] as u32) << 8)
-        | (header[11] as u32);
-    let channels = match header[12] {
-        3 => Channels::RGB,
-        4 => Channels::RGBA,
-        _ => panic!("Invalid number of channels"),
-    };
-    let colorspace = match header[13] {
-        0 => ColorSpace::SRGB,
-        1 => ColorSpace::Linear,
-        _ => panic!("Invalid colorspace"),
-    };
-    (width, height, channels, colorspace)
-}
-
-pub fn encode_from_u8(pixels: &[u8], width: u32, height: u32) -> Vec<u8> {
-    let pixels = pixels
-        .chunks(3)
+pub fn encode_from_u8(bytes: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let pixels = bytes
+        .chunks(4)
         .map(|chunk| {
             let mut pixel = Pixel::default();
             pixel.r = chunk[0];
@@ -123,6 +101,22 @@ pub fn encode_from_pix(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
         }
     }
     encoded
+}
+
+pub fn decode_to_u8(encoded: &[u8]) -> Vec<u8> {
+    let pixels = decode_to_pix(&encoded);
+    let decoded = pixels
+        .into_iter()
+        .flat_map(|pixel| {
+            let mut rgb = [0; 4];
+            rgb[0] = pixel.r;
+            rgb[1] = pixel.g;
+            rgb[2] = pixel.b;
+            rgb[3] = pixel.a;
+            rgb
+        })
+        .collect::<Vec<_>>();
+    decoded
 }
 
 pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {

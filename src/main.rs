@@ -1,72 +1,89 @@
-use qoi::{decode_to_pix, encode_from_pix, Pixel};
-use rand::Rng;
+use qoi::{decode_to_u8, encode_from_u8, QoiHeader};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+};
+use structopt::StructOpt;
 
-fn cycling8x8() {
-    let width = 8;
-    let height = 8;
+#[derive(Debug, StructOpt)]
+struct Opt {
+    #[structopt()]
+    input: String,
 
-    let pixel_list = (0..10).map(|_| Pixel::random()).collect::<Vec<_>>();
-
-    let pixels = (0..width * height)
-        .map(|i| pixel_list[i % pixel_list.len()])
-        .collect::<Vec<_>>();
-    println!("{:?}", pixels);
-    let encoded = encode_from_pix(&pixels, width as u32, height as u32);
-
-    println!("encoded size: {}", encoded.len());
-    println!("compression ratio: {}", encoded.len() as f32 / (width * height * 4) as f32);
-
-    let decoded = decode_to_pix(&encoded);
-
-    assert_eq!(pixels, decoded);
-}
-
-fn default8x8() {
-    let width = 8;
-    let height = 8;
-    let pixels = vec![qoi::Pixel::default(); width * height];
-    let encoded = qoi::encode_from_pix(&pixels, width as u32, height as u32);
-    // println!("{:?}", encoded);
-
-    let decoded = qoi::decode_to_pix(&encoded);
-    // println!("{:?}", decoded);
-
-    assert_eq!(pixels, decoded);
-    println!("\n\nyay!\n");
-}
-
-fn random(width: usize, height: usize) {
-    let pixels = (0..width * height)
-        .map(|_| Pixel::random())
-        .collect::<Vec<_>>();
-    // println!("{:?}", pixels);
-    let encoded = encode_from_pix(&pixels, width as u32, height as u32);
-    // println!("encoded: {:?}", &encoded[14..]);
-
-    let decoded = decode_to_pix(&encoded);
-    // println!("decoded: {:?}", decoded);
-
-    if pixels != decoded {
-        println!("{:?}", pixels);
-        println!("{:?}", encoded);
-        println!("{:?}", decoded);
-        panic!("pixels != decoded");
-    }
-    // assert_eq!(pixels, decoded);
-}
-
-fn repeated_random_x_by_x() {
-    let mut rng = rand::thread_rng();
-    for _ in 0..1_000_000 {
-        random(rng.gen_range(1..100), rng.gen_range(1..100));
-        // println!("\n\n\n\n\n\n\n\n");
-        // println!(
-        //     "---------------------------------------------------------------------------------"
-        // );
-    }
+    #[structopt()]
+    output: String,
 }
 
 fn main() {
-    cycling8x8();
-    repeated_random_x_by_x();
+    let opt = Opt::from_args();
+    println!("{:?}", opt);
+
+    let file = File::open(&opt.input).expect("invalid input file");
+
+    let (bytes, width, height) = {
+        let png_decoder = png::Decoder::new(file);
+        if let Ok(mut reader) = png_decoder.read_info() {
+            println!("decoding png");
+            // Allocate the output buffer.
+            let mut buf = vec![0; reader.output_buffer_size()];
+            // Read the next frame. An APNG might contain multiple frames.
+            let info = reader.next_frame(&mut buf).unwrap();
+            // Grab the bytes of the image.
+            println!("{:?}", info);
+            match info.color_type {
+                png::ColorType::Grayscale => todo!(),
+                png::ColorType::Rgb => {
+                    let mut bytes = Vec::with_capacity((info.width * info.height * 4) as usize);
+                    for row in buf.chunks(info.width as usize * 3) {
+                        for pixel in row.chunks(3) {
+                            bytes.push(pixel[0]);
+                            bytes.push(pixel[1]);
+                            bytes.push(pixel[2]);
+                            bytes.push(255);
+                        }
+                    }
+                    (bytes, info.width, info.height)
+                }
+                png::ColorType::Indexed => todo!(),
+                png::ColorType::GrayscaleAlpha => todo!(),
+                png::ColorType::Rgba => (buf, info.width, info.height),
+            }
+        } else {
+            println!("decoding qoi");
+            let bytes = std::fs::read(&opt.input).unwrap();
+            let header = QoiHeader::from_u8(&bytes);
+            (decode_to_u8(&bytes), header.width, header.height)
+        }
+    };
+
+    println!("{}x{}", width, height);
+
+    match std::str::from_utf8(&opt.output.bytes().rev().take(3).rev().collect::<Vec<u8>>()).unwrap()
+    {
+        "png" => {
+            println!("encoding png");
+            let file = File::create(&opt.output).unwrap();
+            let w = &mut BufWriter::new(file);
+            let now = std::time::Instant::now();
+            let mut encoder = png::Encoder::new(w, width as u32, height as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+
+            // let data = [255, 0, 0, 255, 0, 0, 0, 255]; // An array containing a RGBA sequence. First pixel is red and second pixel is black.
+            writer.write_image_data(&bytes).unwrap(); // Save
+            println!("encoded in {:?}", now.elapsed());
+        }
+        "qoi" => {
+            println!("encoding qoi");
+            let now = std::time::SystemTime::now();
+            let encoded = encode_from_u8(&bytes, width, height); // save decoded to file
+            println!("encoded in {:?}", now.elapsed().unwrap());
+            let mut file = File::create(opt.output).unwrap();
+            file.write_all(&encoded).unwrap();
+        }
+        _ => {
+            panic!("invalid output format");
+        }
+    };
 }

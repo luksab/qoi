@@ -1,23 +1,53 @@
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Channels {
+pub enum Channels {
     RGB = 3,
     RGBA = 4,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ColorSpace {
+pub enum ColorSpace {
     SRGB = 0,
     Linear = 1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct QoiHeader {
+pub struct QoiHeader {
     magic: [u8; 4],
-    width: u32,
-    height: u32,
-    channels: Channels,
-    color_space: ColorSpace,
+    pub width: u32,
+    pub height: u32,
+    pub channels: Channels,
+    pub color_space: ColorSpace,
+}
+
+impl QoiHeader {
+    pub fn from_u8(header: &[u8]) -> Self {
+        let width = ((header[4] as u32) << 24)
+            | ((header[5] as u32) << 16)
+            | ((header[6] as u32) << 8)
+            | (header[7] as u32);
+        let height = ((header[8] as u32) << 24)
+            | ((header[9] as u32) << 16)
+            | ((header[10] as u32) << 8)
+            | (header[11] as u32);
+        let channels = match header[12] {
+            3 => Channels::RGB,
+            4 => Channels::RGBA,
+            _ => panic!("Invalid number of channels"),
+        };
+        let colorspace = match header[13] {
+            0 => ColorSpace::SRGB,
+            1 => ColorSpace::Linear,
+            _ => panic!("Invalid colorspace"),
+        };
+        QoiHeader {
+            magic: [header[0], header[1], header[2], header[3]],
+            width,
+            height,
+            channels,
+            color_space: colorspace,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
