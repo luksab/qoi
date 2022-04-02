@@ -84,32 +84,25 @@ pub fn encode_from_pix(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
                 }
                 if i + num_same + 1 < num_pixels && pixels[i + num_same + 1] == pixel {
                     num_same += 1;
-                    hash.insert(&pixel);
                 } else {
                     break;
                 }
             }
             i = i + num_same + 1;
-            previous = pixel;
-            println!("found run of {} pixels", num_same + 1);
-            println!("encoding as {}", OpRun::new(num_same as u8).get_encoding());
             encoded.push(OpRun::new(num_same as u8).get_encoding());
         } else if index.is_some() {
             // pixel exists in hash
             previous = pixel;
-            println!("found pixel {:?} in hash", pixel);
-            println!("encoding as {}", OpIndex::new(index.unwrap() as u8).get_encoding());
             encoded.push(OpIndex::new(index.unwrap() as u8).get_encoding());
             i += 1;
         } else {
+            hash.insert(&pixel);
             let dr = unsafe { std::mem::transmute::<_, i8>(pixel.r.wrapping_sub(previous.r)) };
             let dg = unsafe { std::mem::transmute::<_, i8>(pixel.g.wrapping_sub(previous.g)) };
             let db = unsafe { std::mem::transmute::<_, i8>(pixel.b.wrapping_sub(previous.b)) };
             if dr >= -2 && dr < 2 && dg >= -2 && dg < 2 && db >= -2 && db < 2 {
                 // difference is small enough to be encoded with OpDiff
                 previous = pixel;
-                println!("found difference {:?}", (dr, dg, db));
-                println!("encoding as {}", OpDiff::new(dr, dg, db).get_encoding());
                 encoded.push(OpDiff::new(dr, dg, db).get_encoding());
             } else if dg >= -32
                 && dg < 32
@@ -120,8 +113,6 @@ pub fn encode_from_pix(pixels: &[Pixel], width: u32, height: u32) -> Vec<u8> {
             {
                 // difference is small enough to be encoded with OpLuma
                 previous = pixel;
-                println!("found large difference {:?}", (dr, dg, db));
-                println!("encoding as {:?}", OpLuma::new(dr, dg, db).get_encoding());
                 encoded.extend_from_slice(&OpLuma::new(dr, dg, db).get_encoding());
             } else {
                 let pix_enc = OpRGB::new(pixel.r, pixel.g, pixel.b).get_encoding();
@@ -139,7 +130,8 @@ pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {
     let mut hash = QOIHash::new();
     let mut previous = Pixel::default();
 
-    let (width, height, channels, colorspace) = get_header(&encoded[0..14]);
+    // let (width, height, channels, colorspace) = get_header(&encoded[0..14]);
+    // println!("{:?}", (width, height, channels, colorspace));
     let encoded = &encoded[14..];
 
     // dbg!(&encoded);
@@ -171,7 +163,6 @@ pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {
                     b: rgba.b,
                     a: rgba.a,
                 };
-                println!("rgba {:?}", rgba);
                 hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
@@ -179,7 +170,6 @@ pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {
             }
             Chunk::Index(index) => {
                 let pixel = hash.get(index.index);
-                println!("found pixel {:?} in hash from {}", pixel, &encoded[i]);
                 // hash does not need to be updated
                 previous = pixel;
                 decoded.push(pixel);
@@ -193,7 +183,6 @@ pub fn decode_to_pix(encoded: &[u8]) -> Vec<Pixel> {
                     b: previous.b.overflowing_add_signed(diff.2).0,
                     a: previous.a,
                 };
-                println!("found difference {:?}", diff);
                 hash.insert(&pixel);
                 previous = pixel;
                 decoded.push(pixel);
