@@ -30,6 +30,7 @@ fn main() {
             let info = reader.next_frame(&mut buf).unwrap();
             // Grab the bytes of the image.
             println!("{:?}", info);
+            assert_eq!(info.bit_depth, png::BitDepth::Eight, "png bit depth must be 8");
             match info.color_type {
                 png::ColorType::Grayscale => todo!(),
                 png::ColorType::Rgb => {
@@ -51,7 +52,7 @@ fn main() {
         } else {
             println!("decoding qoi");
             let bytes = std::fs::read(&opt.input).unwrap();
-            let header = QoiHeader::from_u8(&bytes);
+            let header = QoiHeader::from_u8(&bytes).expect("invalid qoi header");
             (decode_to_u8(&bytes), header.width, header.height)
         }
     };

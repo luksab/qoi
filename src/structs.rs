@@ -21,7 +21,18 @@ pub struct QoiHeader {
 }
 
 impl QoiHeader {
-    pub fn from_u8(header: &[u8]) -> Self {
+    pub fn from_u8(header: &[u8]) -> Result<Self, String> {
+        if header.len() < 14 {
+            return Err(format!("Header is too short: {}", header.len()));
+        }
+        if header[0] != "qoif".as_bytes()[0]
+            || header[1] != "qoif".as_bytes()[1]
+            || header[2] != "qoif".as_bytes()[2]
+            || header[3] != "qoif".as_bytes()[3]
+        {
+            return Err(format!("Invalid magic: {:?}", &header[0..4]));
+        }
+
         let width = ((header[4] as u32) << 24)
             | ((header[5] as u32) << 16)
             | ((header[6] as u32) << 8)
@@ -33,20 +44,20 @@ impl QoiHeader {
         let channels = match header[12] {
             3 => Channels::RGB,
             4 => Channels::RGBA,
-            _ => panic!("Invalid number of channels"),
+            _ => return Err(format!("Invalid number of channels: {}", header[12])),
         };
         let colorspace = match header[13] {
             0 => ColorSpace::SRGB,
             1 => ColorSpace::Linear,
-            _ => panic!("Invalid colorspace"),
+            _ => return Err(format!("Invalid color space: {}", header[13])),
         };
-        QoiHeader {
+        Ok(QoiHeader {
             magic: [header[0], header[1], header[2], header[3]],
             width,
             height,
             channels,
             color_space: colorspace,
-        }
+        })
     }
 }
 
